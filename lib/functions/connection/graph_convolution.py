@@ -7,7 +7,6 @@ import six
 
 import chainer
 from chainer import cuda
-from chainer.cuda import cupy
 from chainer import function
 from chainer.utils import type_check
 
@@ -25,6 +24,8 @@ def chebyshev_matvec_cpu(C, x, K, n_batch, LmI):
 
 
 if chainer.cuda.available:
+    from chainer.cuda import cupy
+
     # Computes y = Lx
     # x will be flattened in C-order
     # y will be flattened in C-order
@@ -81,7 +82,7 @@ class GraphConvolutionFunction(function.Function):
             x_type.shape[1] == w_type.shape[1],
         )
 
-        if n_in.eval() == 3:
+        if n_in == 3:
             b_type = in_types[2]
             type_check.expect(
                 b_type.dtype == x_type.dtype,

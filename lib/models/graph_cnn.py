@@ -27,23 +27,24 @@ class GraphCNN(chainer.Chain):
         # of graphs into 2 levels by combining pooling indices.
         graphs, pooling_inds = coarsening.combine(graphs, pooling_inds, 2)
 
-        self.graph_layers = []
-        sizes = [32, 64]
-        for i, (g, inds, s) in enumerate(zip(graphs, pooling_inds, sizes)):
-            f = GraphConvolution(None, s, g, K=25)
-            self.add_link('gconv{}'.format(i), f)
-            p = GraphMaxPoolingFunction(inds)
-            self.graph_layers.append((f, p))
+        with self.init_scope():
+            self.graph_layers = []
+            sizes = [32, 64]
+            for i, (g, inds, s) in enumerate(zip(graphs, pooling_inds, sizes)):
+                f = GraphConvolution(None, s, g, K=25)
+                self.__dict__['gconv{}'.format(i)] = f
+                p = GraphMaxPoolingFunction(inds)
+                self.graph_layers.append((f, p))
 
-        self.linear_layers = []
-        sizes = [512]
-        for i, s in enumerate(sizes):
-            f = L.Linear(None, s)
-            self.add_link('l{}'.format(i), f)
-            self.linear_layers.append(f)
-        self.add_link('cls_layer', L.Linear(None, n_out))
+            self.linear_layers = []
+            sizes = [512]
+            for i, s in enumerate(sizes):
+                f = L.Linear(None, s)
+                self.__dict__['l{}'.format(i)] = f
+                self.linear_layers.append(f)
+            self.cls_layer = L.Linear(None, n_out)
 
-        self.train = True
+            self.train = True
 
     def __call__(self, x, *args):
         # x.shape = (n_batch, n_channels, h*w)
@@ -56,7 +57,7 @@ class GraphCNN(chainer.Chain):
 
         # Fully connected layers
         for f in self.linear_layers:
-            h = F.relu(F.dropout(f(h), dropout_ratio, train=self.train))
+            h = F.relu(F.dropout(f(h), dropout_ratio))
 
         # Linear classification layer
         h = self.cls_layer(h)

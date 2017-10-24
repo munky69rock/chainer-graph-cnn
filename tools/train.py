@@ -11,6 +11,7 @@ from chainer import datasets
 from chainer import optimizers
 from chainer.training import extensions
 from chainer.training.updater import ParallelUpdater
+from chainer.training.updater import StandardUpdater
 
 from lib import graph
 from lib.models import graph_cnn
@@ -21,7 +22,8 @@ class TestModeEvaluator(extensions.Evaluator):
     def evaluate(self):
         model = self.get_target('main')
         model.train = False
-        ret = super(TestModeEvaluator, self).evaluate()
+        with chainer.using_config('train', False):
+        	ret = super(TestModeEvaluator, self).evaluate()
         model.train = True
         return ret
 
@@ -40,7 +42,7 @@ def main():
     parser.add_argument('--epoch', '-e', type=int,
                         required=True, help='Number of epochs to train for')
     parser.add_argument('--gpus', '-g', type=int, nargs="*",
-                        required=True, help='GPU(s) to use for training')
+                        help='GPU(s) to use for training')
     parser.add_argument('--val-freq', type=int, default=1,
                         help='Validation frequency')
     parser.add_argument('--snapshot-freq', type=int,
@@ -60,11 +62,14 @@ def main():
     if 'optimizer' in config:
         optimizer.add_hook(chainer.optimizer.WeightDecay(
             config['optimizer']['weight_decay']))
-
-    devices = {'main': args.gpus[0]}
-    for gid in args.gpus[1:]:
-        devices['gpu{}'.format(gid)] = gid
-    config['batch_size'] *= len(args.gpus)
+    
+    if args.gpus is None:
+        devices = None
+    else:
+        devices = {'main': args.gpus[0]}
+        for gid in args.gpus[1:]:
+            devices['gpu{}'.format(gid)] = gid
+        config['batch_size'] *= len(args.gpus)
 
     train_dataset, val_dataset = datasets.get_mnist()
 
@@ -73,20 +78,25 @@ def main():
     val_iter = chainer.iterators.SerialIterator(
         val_dataset, batch_size=1, repeat=False, shuffle=False)
 
-    updater = ParallelUpdater(train_iter, optimizer, devices=devices,
-                              converter=concat_and_reshape)
+    if devices is None:
+        updater = StandardUpdater(train_iter, optimizer,
+                                  converter=concat_and_reshape)
+    else:
+        updater = ParallelUpdater(train_iter, optimizer, devices=devices,
+                                  converter=concat_and_reshape)
     trainer = chainer.training.Trainer(
         updater, (args.epoch, 'epoch'), out=args.outdir)
 
     # Extentions
     trainer.extend(
-        TestModeEvaluator(val_iter, model, device=devices['main'],
+        TestModeEvaluator(val_iter, model,
+                          device=devices['main'] if devices is not None else None,
                           converter=concat_and_reshape),
         trigger=(args.val_freq, 'epoch'))
     trainer.extend(
-        extensions.snapshot(trigger=(args.snapshot_freq, 'epoch')))
+        extensions.snapshot(), trigger=(args.snapshot_freq, 'epoch'))
     trainer.extend(
-        extensions.LogReport(trigger=(args.log_freq, 'epoch')))
+        extensions.LogReport(), trigger=(args.log_freq, 'epoch'))
     trainer.extend(extensions.PrintReport([
         'epoch', 'iteration',
         'main/loss', 'main/accuracy',

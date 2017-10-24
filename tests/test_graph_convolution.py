@@ -7,7 +7,8 @@ import numpy as np
 
 import chainer
 from chainer import cuda
-from chainer.cuda import cupy
+if chainer.cuda.available:
+    from chainer.cuda import cupy
 from chainer import gradient_check
 from chainer import testing
 from chainer.testing import attr

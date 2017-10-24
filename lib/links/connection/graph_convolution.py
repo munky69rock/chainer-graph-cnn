@@ -4,6 +4,7 @@
 from chainer import cuda
 from chainer import initializers
 from chainer import link
+from chainer import Parameter
 
 from lib.functions.connection import graph_convolution
 from lib import graph
@@ -22,7 +23,6 @@ class GraphConvolution(link.Link):
         out_channels (int): Number of channels of output arrays.
         A (~ndarray): Weight matrix describing the graph.
         K (int): Polynomial order of the Chebyshev approximation.
-        wscale (float): Scaling factor of the initial weight.
         bias (float): Initial bias value.
         nobias (bool): If ``True``, then this link does not use the bias term.
         initialW (4-D array): Initial weight value. If ``None``, then this
@@ -53,7 +53,7 @@ class GraphConvolution(link.Link):
 
     """
 
-    def __init__(self, in_channels, out_channels, A, K, wscale=1, bias=0,
+    def __init__(self, in_channels, out_channels, A, K, bias=0,
                  nobias=False, initialW=None, initial_bias=None):
         super(GraphConvolution, self).__init__()
 
@@ -62,13 +62,12 @@ class GraphConvolution(link.Link):
         self.K = K
         self.out_channels = out_channels
 
-        self.wscale = wscale
+        self._W_initializer = initializers._get_initializer(initialW)
 
-        self._W_initializer = initializers._get_initializer(
-            initialW, scale=wscale)
-
+        self.has_uninitialized_params = False
         if in_channels is None:
-            self.add_uninitialized_param('W')
+            self.W = Parameter()
+            self.has_uninitialized_params = True
         else:
             self._initialize_params(in_channels)
 
@@ -78,7 +77,8 @@ class GraphConvolution(link.Link):
             if initial_bias is None:
                 initial_bias = bias
             bias_initializer = initializers._get_initializer(initial_bias)
-            self.add_param('b', out_channels, initializer=bias_initializer)
+            self.b = Parameter(
+                initializer=bias_initializer, shape=out_channels)
 
         self.func = graph_convolution.GraphConvolutionFunction(L, K)
 
@@ -89,11 +89,14 @@ class GraphConvolution(link.Link):
     def to_gpu(self, device=None):
         with cuda.get_device(device):
             super(GraphConvolution, self).to_gpu(device)
+            self.W.to_gpu()
+            if self.b is not None:
+                self.b.to_gpu()
             self.func.to_gpu(device)
 
     def _initialize_params(self, in_channels):
         W_shape = (self.out_channels, in_channels, self.K)
-        self.add_param('W', W_shape, initializer=self._W_initializer)
+        self.W = Parameter(initializer=self._W_initializer, shape=W_shape)
 
     def __call__(self, x):
         """Applies the graph convolutional layer.
@@ -105,7 +108,11 @@ class GraphConvolution(link.Link):
             ~chainer.Variable: Output of the graph convolution.
         """
         if self.has_uninitialized_params:
-            with cuda.get_device(self._device_id):
+            if cuda.available:
+                with cuda.get_device(self._device_id) as device:
+                    self._initialize_params(x.shape[1])
+                    self.to_gpu(device)
+            else:
                 self._initialize_params(x.shape[1])
         if self.b is None:
             return self.func(x, self.W)

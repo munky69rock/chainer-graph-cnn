@@ -23,12 +23,12 @@ pip install -r requirements.txt
 ```
 This implementation has been tested with the following versions.
 ```
-python 2.7.6
-chainer (1.19.0)
+python 3.6.3
+chainer (3.0.0)
 nose (1.3.7)
-numpy (1.11.3)
-scikit-learn (0.18.1)
-scipy (0.18.1)
+numpy (1.13.3)
+scikit-learn (0.19.0)
+scipy (0.19.1)
 ```
 It may work with other versions; not tested.
 
